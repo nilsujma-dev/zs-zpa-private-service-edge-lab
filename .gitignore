@@ -35,3 +35,12 @@ venv/
 
 # --- OS ----------------------------------------------------------------------
 .DS_Store
+
+# --- merged from nilsujma-dev/zs-repo-template ---------------------------------
+*.local.conf
+.env.*
+config/local*
+credentials*
+state/
+*.log
+*.csv.tmp
