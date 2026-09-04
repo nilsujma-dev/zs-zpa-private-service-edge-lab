@@ -1,0 +1,37 @@
+# --- Terraform / OpenTofu state and plans -----------------------------------
+# State contains every resource attribute. Plans can contain the same.
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform/
+.terraform.lock.hcl
+crash.log
+
+# --- Secrets ----------------------------------------------------------------
+# Provisioning keys live in SSM Parameter Store, never on disk. These patterns
+# exist so an accidental local copy can never be committed.
+*.auto.tfvars
+*.tfvars
+!example.tfvars
+.env
+.envrc
+*_key
+*.pem
+*.key
+secrets/
+
+# --- Tenant-specific output --------------------------------------------------
+# zpa-snapshot/ is a dump of the LIVE ZPA tenant taken as a pre-change baseline.
+# It contains production application segments, server groups and connector
+# groups. It must never be published.
+zpa-snapshot/
+zpa-created.json
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- OS ----------------------------------------------------------------------
+.DS_Store
