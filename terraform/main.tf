@@ -125,17 +125,17 @@ resource "aws_iam_instance_profile" "node" {
 locals {
   # Waits for the key to appear in SSM, then enrols. No secret is embedded here,
   # so nothing sensitive lands in user_data or in tofu state.
-  # Mirrors zscaler/terraform-aws-zpa-app-connector-modules scripts/user_data_rhel9.sh,
-  # provisioning_key branch. Three details are load-bearing and were wrong in my
-  # first attempt: the key file must be 644 (the service does not run as root),
-  # it is written with echo so it carries a trailing newline, and the service needs
-  # a second stop/start after a settle period -- the image starts in OAuth mode at
-  # boot, before cloud-init runs, so one start is not enough to switch it over.
+  # Mirrors scripts/user_data_zscaler.sh (the Marketplace-AMI variant, NOT the
+  # rhel9 one) from zscaler's app-connector and private-service-edge modules.
+  # The two components read the key from DIFFERENT paths -- App Connector from
+  # /opt/zscaler/var/provision_key, Service Edge from
+  # /opt/zscaler/var/service-edge/provision_key -- hence __KEYPATH__ per instance.
+  # The file must be 644: the service does not run as root.
   bootstrap = <<-BASH
     #!/bin/bash
     exec > >(tee /var/log/zpa-bootstrap.log) 2>&1
     set -uo pipefail
-    SVC="__SERVICE__"; PARAM="__PARAM__"
+    SVC="__SERVICE__"; PARAM="__PARAM__"; KEYPATH="__KEYPATH__"
 
     # STOP FIRST -- before anything slow. The image auto-starts the service at
     # boot; if it is left running while we install the CLI and poll SSM (~60s)
@@ -160,18 +160,9 @@ locals {
     if [ -z "$${KEY:-}" ] || [ "$KEY" = "None" ]; then echo "FATAL: key never appeared"; exit 1; fi
 
     systemctl stop "$SVC" 2>/dev/null || true
-    install -d -m 755 /opt/zscaler/var
-    echo "$KEY" > /opt/zscaler/var/provision_key
-    chmod 644 /opt/zscaler/var/provision_key
-    # Clear any OAuth enrolment state established before we stopped the service,
-    # so it cannot resume the OAuth path on restart.
-    rm -f /opt/zscaler/var/oauth_enrollment_stats.json \
-          /opt/zscaler/var/instance_id.bin \
-          /opt/zscaler/var/instance_id.crypt 2>/dev/null || true
-    systemctl start "$SVC"
-
-    sleep 60
-    systemctl stop "$SVC" 2>/dev/null || true
+    install -d -m 755 "$(dirname "$KEYPATH")"
+    echo "$KEY" > "$KEYPATH"
+    chmod 644 "$KEYPATH"
     systemctl start "$SVC"
 
     # Report state back through SSM. The console buffer only holds the last 64KB
@@ -180,8 +171,8 @@ locals {
     HOST=$(hostname)
     REPORT=$(
       echo "svc=$SVC"
-      echo "keyfile=$(ls -l /opt/zscaler/var/provision_key 2>&1 | tr -s ' ')"
-      echo "keybytes=$(wc -c < /opt/zscaler/var/provision_key 2>/dev/null || echo missing)"
+      echo "keyfile=$(ls -l $KEYPATH 2>&1 | tr -s ' ')"
+      echo "keybytes=$(wc -c < $KEYPATH 2>/dev/null || echo missing)"
       echo "active=$(systemctl is-active $SVC 2>&1)"
       echo "enabled=$(systemctl is-enabled $SVC 2>&1)"
       echo "issue=$(grep -Eo '[A-Z0-9]{5}-[A-Z0-9]{5}' /etc/issue 2>/dev/null | head -1)"
@@ -204,8 +195,10 @@ resource "aws_instance" "pse" {
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.pse.id]
   iam_instance_profile   = aws_iam_instance_profile.node.name
-  user_data = replace(replace(local.bootstrap, "__SERVICE__", "zpa-service-edge"),
-  "__PARAM__", "/zpa-lab/pse-provisioning-key")
+  user_data = replace(replace(replace(local.bootstrap,
+    "__SERVICE__", "zpa-service-edge"),
+    "__PARAM__", "/zpa-lab/pse-provisioning-key"),
+  "__KEYPATH__", "/opt/zscaler/var/service-edge/provision_key")
   metadata_options { http_tokens = "required" }
   root_block_device {
     volume_size = 80
@@ -226,8 +219,10 @@ resource "aws_instance" "connector" {
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.connector.id]
   iam_instance_profile   = aws_iam_instance_profile.node.name
-  user_data = replace(replace(local.bootstrap, "__SERVICE__", "zpa-connector"),
-  "__PARAM__", "/zpa-lab/connector-provisioning-key")
+  user_data = replace(replace(replace(local.bootstrap,
+    "__SERVICE__", "zpa-connector"),
+    "__PARAM__", "/zpa-lab/connector-provisioning-key"),
+  "__KEYPATH__", "/opt/zscaler/var/provision_key")
   metadata_options { http_tokens = "required" }
   root_block_device {
     volume_size = 80
@@ -242,8 +237,6 @@ output "pse_private_ip" { value = aws_instance.pse.private_ip }
 output "connector_ip" { value = aws_instance.connector.private_ip }
 output "vpc_id" { value = aws_vpc.lab.id }
 
-# Region and account are resolved at plan time rather than hardcoded, so this
-# config is portable to any account without editing.
 variable "region" {
   description = "AWS region for the lab"
   type        = string

@@ -1,11 +1,39 @@
 # Runbook
 
-## Enrolment: four silent failure modes
+## Enrolment: five silent failure modes
 
-Provisioning-key enrolment fails **without an error message** in all four cases
+Provisioning-key enrolment fails **without an error message** in all five cases
 below. The instance boots, the service runs, and it quietly falls back to
 interactive OAuth — printing a user code on the console and waiting forever.
 Each of these cost a full rebuild cycle to find.
+
+### 0. The two components read the key from DIFFERENT paths
+
+This is the one that costs the most time, because everything looks correct.
+
+| Component | Path |
+|---|---|
+| App Connector | `/opt/zscaler/var/provision_key` |
+| **Service Edge** | **`/opt/zscaler/var/service-edge/provision_key`** |
+
+Write the connector's flat path on a Service Edge and the file is created
+perfectly — mode 644, right byte count, owned by root — in a location the edge
+never reads. It falls through to OAuth with no complaint. `ls /opt/zscaler/var`
+shows both `provision_key` and a `service-edge/` directory, which is the tell.
+
+Each module ships **two** bootstrap scripts and only one is relevant:
+
+| Script | For |
+|---|---|
+| `scripts/user_data_rhel9.sh` | a plain RHEL9 base — adds Zscaler's yum repo and installs the package. Uses the flat path for both components. |
+| `scripts/user_data_zscaler.sh` | **the Marketplace AMI** — package pre-baked. This is the one that applies here, and the one with the split paths. |
+
+Read the raw bytes, not a summary:
+
+```sh
+gh api repos/zscaler/terraform-aws-zpa-private-service-edge-modules/contents/scripts/user_data_zscaler.sh \
+  --jq '.content' | base64 -d
+```
 
 ### 1. The key file must be mode 644
 
@@ -18,29 +46,34 @@ The connector/edge service does not run as root and cannot read a `600` file.
 Written with `echo`, so it carries a trailing newline — matching Zscaler's own
 `user_data_rhel9.sh`.
 
-### 2. Stop the service *first*, before anything slow
+### 2. Stop the service before writing the key
 
-The AMI auto-starts the service at boot. If it is still running while you install
-the AWS CLI and poll SSM (~60s), it commits to OAuth2 provisioning and then
-ignores the key file entirely — logging:
+The AMI auto-starts the service at boot, so stop it before writing. Note that a
+running service is *not* by itself the cause of an OAuth fallback — this was
+initially misdiagnosed as an ordering problem when the real fault was the key
+path above. Stop, write, start is sufficient; the extra settle-and-restart cycle
+in `user_data_rhel9.sh` is not needed on the AMI. The symptom to recognise is:
 
 ```
 [OAuth] Started provisioning this device using OAuth2.0 method
 ```
 
-…while a perfectly valid 427-byte key sits unread beside it. Zscaler's own script
-gets away with stopping later only because it embeds the key inline and stops
-within seconds of boot. Anything that *fetches* the key must stop up front, then
-clear any OAuth state established in the meantime:
+…while a perfectly valid 427-byte key sits unread. Seeing this line means the
+edge did not find a key **where it looked** — check the path in §0 first.
+
+What the shipped bootstrap does, matching `user_data_zscaler.sh`:
 
 ```sh
-systemctl stop "$SVC"          # first action in user_data
-# ... install CLI, fetch key from SSM ...
-rm -f /opt/zscaler/var/oauth_enrollment_stats.json \
-      /opt/zscaler/var/instance_id.bin /opt/zscaler/var/instance_id.crypt
+systemctl stop "$SVC"
+install -d -m 755 "$(dirname "$KEYPATH")"   # service-edge/ may not exist yet
+echo "$KEY" > "$KEYPATH"
+chmod 644 "$KEYPATH"
 systemctl start "$SVC"
-sleep 60; systemctl stop "$SVC"; systemctl start "$SVC"
 ```
+
+With the correct path this enrols in about three minutes from boot: roughly one
+minute of instance start plus CLI install and SSM fetch, then the edge registers
+and `usageCount` on the provisioning key increments.
 
 ### 3. Never send `enrollmentCertId` and `signingCertId` together
 

@@ -241,8 +241,10 @@ resource "aws_instance" "priv_connector" {
   subnet_id              = aws_subnet.priv.id
   vpc_security_group_ids = [aws_security_group.priv_connector.id]
   iam_instance_profile   = aws_iam_instance_profile.node.name
-  user_data = replace(replace(local.bootstrap, "__SERVICE__", "zpa-connector"),
-  "__PARAM__", "/zpa-lab/priv-connector-provisioning-key")
+  user_data = replace(replace(replace(local.bootstrap,
+    "__SERVICE__", "zpa-connector"),
+    "__PARAM__", "/zpa-lab/priv-connector-provisioning-key"),
+  "__KEYPATH__", "/opt/zscaler/var/provision_key")
   metadata_options {
     http_tokens = "required"
   }
