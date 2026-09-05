@@ -122,8 +122,16 @@ This requires `ssm:PutParameter` scoped to `/zpa-lab/debug/*` on the instance ro
 
 ## ZPA safety model
 
-The tenant used for this lab is shared with production, so every script here is
-built to prove it changed nothing else.
+This lab is self-contained apart from one thing: the **ZPA tenant**. A tenant is
+an account-level object, so if the credentials you hand it point at a tenant that
+already carries other work, this lab's objects land beside that work. Nothing else
+is shared — the VPCs, subnets, routing, instances, Service Edge Group, App
+Connector Groups and provisioning keys are all created here and prefixed
+`AWS-Lab`.
+
+Every script is therefore built to prove it changed nothing it did not create.
+Against an empty tenant this machinery is redundant; against a populated one it
+is the difference between a safe lab and an incident.
 
 - **Create-only.** No `PUT`, no `DELETE`, with one exception:
   `scripts/zpa_fix_se_group.py`, hard-guarded to a single group ID and refusing to

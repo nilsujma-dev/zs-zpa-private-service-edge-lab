@@ -28,7 +28,7 @@ if CG_NAME in before:
 else:
     c, j = req("POST", "appConnectorGroup", {
         "name": CG_NAME,
-        "description": "AWS lab PRIV segment connector. Serves the nginx test server. Not EBC production.",
+        "description": "Standalone AWS lab PRIV connector. Serves the lab nginx server only.",
         "enabled": True, "latitude": LAT, "longitude": LON, "location": LOC,
         "upgradeDay": "SUNDAY", "upgradeTimeInSecs": "66600", "dnsQueryType": "IPV4_IPV6",
         "signingCertId": ROOT, "enrollmentCertId": CERT_CONN,

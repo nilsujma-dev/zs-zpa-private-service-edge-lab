@@ -1,6 +1,6 @@
 import os
 # Standalone OneAPI scope check. Reads secret from ~/.zscaler_api_key.
-# Does NOT import from or write to the ebc-dashboard project.
+# Read-only: prints token claims so you can confirm what the credential can reach.
 # Prints token CLAIMS only -- never the secret, never the bearer token.
 import base64, json, os, urllib.parse, urllib.request
 

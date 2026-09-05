@@ -8,19 +8,37 @@ isolated VPCs, three network zones, and unattended provisioning-key enrolment.
 | | |
 |---|---|
 | **Owner** | Nils Ujma |
-| **Context** | Zscaler — ZPA / IoT-OT EBC demo lab |
+| **Context** | Zscaler — ZPA. Standalone lab, not tied to any other deployment |
 | **Stability** | experimental |
 | **Runtime** | OpenTofu 1.12+, Python 3.11+ (stdlib only), AWS CLI v2 |
 
 ## Why
 
-The IoT/OT EBC needs a Private Service Edge it can stand up, break, and rebuild
-without touching the production tenant's topology. This builds one end to end in
-AWS, and — more usefully — records the five failure modes that make PSE
-automation silently fall back to interactive OAuth enrolment.
+A Private Service Edge you can stand up, break, and rebuild from nothing — built
+end to end in AWS, and, more usefully, recording the five failure modes that make
+PSE automation silently fall back to interactive OAuth enrolment.
 
 There is **no vendor licensing cost**. The ZPA AMIs carry no marketplace product
 code and bill as plain `RunInstances`, so the only spend is EC2 infrastructure.
+
+## Scope
+
+This lab is **self-contained**. Everything it needs it creates: two VPCs, its own
+subnets, routing, security groups and instances, plus its own ZPA Service Edge
+Group, App Connector Groups and provisioning keys — all prefixed `AWS-Lab`.
+
+The **one** thing it shares with other work is the ZPA tenant, because a tenant is
+an account-level object and this is where the credentials point. Nothing else is
+shared: no VPCs, no subnets, no application segments, no server groups, no access
+policy, no infrastructure of any kind.
+
+That single shared tenant is the entire reason for the safety machinery in
+`scripts/` — a SHA-hashed baseline before any write and a verification pass after
+(see [ZPA safety model](docs/runbook.md#zpa-safety-model)). It exists to prove this
+lab changed nothing belonging to anything else in the tenant, not because the lab
+is part of anything else.
+
+Point it at an empty tenant and it works unchanged.
 
 ## Topology
 
@@ -120,7 +138,7 @@ Each instance reads its own parameter at boot through its IAM role.
 
 | | |
 |---|---|
-| Region | `eu-central-1` (nearest to the Amsterdam-anchored ZPA groups) |
+| Region | `eu-central-1` — any region works; nothing here is region-specific |
 | VPC A | `10.91.0.0/16` — PSE + co-located App Connector, public subnet |
 | VPC B | `10.90.0.0/16` — `10.90.0.0/24` NAT, `10.90.20.0/24` PRIV, `10.90.30.0/24` MCU |
 | Reachability | No VPC-to-VPC link. VPC B reaches the PSE via NAT → internet → elastic IP; VPC A's own connector stays local |
@@ -138,7 +156,7 @@ an instance with no SSH and no SSM agent, and the ZPA safety model.
 ## Repo checklist
 
 - [x] Name follows `zs-<area>-<thing>`
-- [x] Topics set: `zscaler`, `zpa`, `terraform`, `ot-security`, `aws`
+- [x] Topics set: `zscaler`, `zpa`, `terraform`, `aws`, `zero-trust`
 - [x] Description filled in on GitHub
 - [x] `.gitignore` covers local config, state and tenant snapshots
 - [x] Secrets confirmed absent from history — see `docs/runbook.md`

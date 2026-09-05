@@ -25,7 +25,7 @@ se_before, cg_before = index("serviceEdgeGroup"), index("appConnectorGroup")
 print(f"Before: {len(se_before)} service edge group(s), {len(cg_before)} connector group(s)\n")
 
 created["serviceEdgeGroupId"]=ensure("serviceEdgeGroup",SE_NAME,{
-    "name":SE_NAME,"description":"Isolated AWS lab PSE. Not part of EBC production topology.",
+    "name":SE_NAME,"description":"Standalone AWS lab PSE. Created by automation; belongs to no other deployment in this tenant.",
     "enabled":True,"latitude":LAT,"longitude":LON,"location":LOC,"isPublic":"false",
     "upgradeDay":"SUNDAY","upgradeTimeInSecs":"66600","signingCertId":ROOT,
     "enrollmentCertId":CERT_SE,"overrideVersionProfile":True,"versionProfileId":"0"})

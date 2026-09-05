@@ -126,9 +126,8 @@ AFTER A 'down', TWO THINGS TO KNOW:
      Check current usage with:  ./lab.sh status
 
   2. ZPA keeps the old enrolled entries; they show as disconnected and pile up
-     one per rebuild -- exactly how the two stale connectors got into the EBC
-     tenant. Removing them is a DELETE against ZPA, and the only credential
-     available is production super-admin, so that is deliberately NOT scripted.
+     one per rebuild. Removing them is a DELETE against ZPA, and the credential
+     in use may be broadly scoped, so that is deliberately NOT scripted.
      Do it in the console, where the blast radius is visible. Delete only under:
        AWS-Lab PSE Group / AWS-Lab App Connector Group / AWS-Lab PRIV Connector Group
 TXT

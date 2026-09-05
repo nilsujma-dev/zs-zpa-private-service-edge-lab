@@ -1,5 +1,5 @@
 import os
-# Read-only ZPA discovery via OneAPI. GET only. Standalone -- does not touch ebc-dashboard.
+# Read-only ZPA discovery via OneAPI. GET only. Standalone and side-effect free.
 import base64,json,os,sys,urllib.parse,urllib.request,urllib.error
 ISSUER=os.environ.get("ZS_ISSUER","https://YOUR_TENANT.zslogin.net"); GW="https://api.zsapi.net"; CID=os.environ.get("ZS_CLIENT_ID","")
 sec=open(os.path.expanduser("~/.zscaler_api_key")).read().strip()

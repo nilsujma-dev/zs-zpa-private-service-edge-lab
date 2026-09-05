@@ -1,5 +1,6 @@
 import os
-"""Minimal ZPA OneAPI client. Standalone -- does not import from or touch ebc-dashboard."""
+"""Minimal ZPA OneAPI client. Standalone: no dependencies outside the stdlib and
+no coupling to anything else in the tenant."""
 import base64,json,os,urllib.parse,urllib.request,urllib.error
 ISSUER=os.environ.get("ZS_ISSUER","https://YOUR_TENANT.zslogin.net"); GW="https://api.zsapi.net"; CID=os.environ.get("ZS_CLIENT_ID","")
 _tok=None; _cust=None

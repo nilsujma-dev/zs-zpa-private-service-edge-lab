@@ -19,7 +19,7 @@ than not having it.
 
 ## Lab safety
 
-Where this repository touches the OT/IoT lab, note explicitly which actions write to
+Where this repository writes to a shared ZPA tenant, note explicitly which actions write to
 physical equipment. Anything that can change PLC state belongs behind an explicit flag,
 never a default.
 
