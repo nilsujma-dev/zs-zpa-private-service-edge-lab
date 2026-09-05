@@ -48,25 +48,30 @@ resource "aws_route_table_association" "public" {
 }
 
 # ---------------------------------------------------------------- security
+# The PSE's rules are standalone resources, never inline. Inline ingress/egress
+# blocks assert the COMPLETE rule set and strip anything else on every apply --
+# which is exactly how the cross-VPC rule in vpc_b.tf would be deleted by a
+# control-plane-driven apply. Standalone rules compose; inline blocks do not.
+# The description is unchanged on purpose: it is ForceNew on this resource.
 resource "aws_security_group" "pse" {
   name        = "zpa-lab-pse"
   description = "PSE: accepts 443 from inside the lab VPC only"
   vpc_id      = aws_vpc.lab.id
-  ingress {
-    description = "Client Connector and App Connector dial the broker"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.lab.cidr_block]
-  }
-  egress {
-    description = "Control-plane tunnel to the ZPA cloud"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  tags = { Name = "zpa-lab-pse" }
+  tags        = { Name = "zpa-lab-pse" }
+}
+resource "aws_vpc_security_group_ingress_rule" "pse_from_vpc_a" {
+  security_group_id = aws_security_group.pse.id
+  cidr_ipv4         = aws_vpc.lab.cidr_block
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  description       = "Client Connector and App Connector dial the broker"
+}
+resource "aws_vpc_security_group_egress_rule" "pse_all" {
+  security_group_id = aws_security_group.pse.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+  description       = "Control-plane tunnel to the ZPA cloud"
 }
 resource "aws_security_group" "connector" {
   name        = "zpa-lab-connector"
