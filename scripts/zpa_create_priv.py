@@ -1,62 +1,36 @@
-"""Adds the PRIV App Connector Group + provisioning key. Create-only, resume-safe.
-Never issues PUT or DELETE. Never touches an object it did not create."""
-import json, os, sys
+"""Create the PRIV App Connector Group and its provisioning key.
+
+Same rules and helpers as zpa_create.py: reuse by name, create-only, no signingCertId
+on keys, assert the cert landed. Run after zpa_create.py; extends zpa-created.json.
+"""
+import json
+import os
+import sys
 
 here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, here)
-from zpa_api import req, get
+from zpa_create import LAT, LOC, LON, OUT, PREFIX, certs, ensure_group, ensure_key  # noqa: E402
 
-PREFIX = "AWS-Lab"
-LAT, LON, LOC = "50.1109221", "8.6821267", "Frankfurt am Main, Germany"
-ROOT, CERT_CONN = "31028", "31030"
 CG_NAME = f"{PREFIX} PRIV Connector Group"
-
-made = json.load(open(os.path.join(here, "zpa-created.json")))
-
-
-def index(res):
-    c, j = get(res)
-    return {i["name"]: i["id"] for i in (j.get("list") or [])} if c == 200 else {}
+CG_KEY = f"{PREFIX} PRIV CONNECTOR_GRP key v2"
 
 
-before = index("appConnectorGroup")
-print(f"connector groups before: {len(before)}")
-
-if CG_NAME in before:
-    gid = before[CG_NAME]
-    print(f"  REUSE  id={gid}  {CG_NAME}")
-else:
-    c, j = req("POST", "appConnectorGroup", {
+def main():
+    c = certs()
+    root, conn = c["Root"], c["Connector"]
+    made = json.load(open(OUT)) if os.path.exists(OUT) else {}
+    gid = ensure_group("appConnectorGroup", CG_NAME, {
         "name": CG_NAME,
         "description": "Standalone AWS lab PRIV connector. Serves the lab nginx server only.",
         "enabled": True, "latitude": LAT, "longitude": LON, "location": LOC,
         "upgradeDay": "SUNDAY", "upgradeTimeInSecs": "66600", "dnsQueryType": "IPV4_IPV6",
-        "signingCertId": ROOT, "enrollmentCertId": CERT_CONN,
+        "signingCertId": root, "enrollmentCertId": conn,
         "overrideVersionProfile": True, "versionProfileId": "0"})
-    if c not in (200, 201):
-        print(f"  HTTP {c}: {json.dumps(j)[:300]}")
-        sys.exit(1)
-    gid = j["id"]
-    print(f"  CREATE id={gid}  {j['name']}")
-made["privConnectorGroupId"] = gid
+    made.update(privConnectorGroupId=gid,
+                privConnKeyId=ensure_key("CONNECTOR_GRP", CG_KEY, root, gid))
+    json.dump(made, open(OUT, "w"), indent=2)
+    print(json.dumps(made, indent=2))
 
-path = "associationType/CONNECTOR_GRP/provisioningKey"
-keys = index(path)
-kn = f"{PREFIX} PRIV CONNECTOR_GRP key"
-if kn in keys:
-    print(f"  provisioningKey REUSE  id={keys[kn]}")
-    made["privConnKeyId"] = keys[kn]
-else:
-    c, j = req("POST", path, {"name": kn, "maxUsage": "5", "enrollmentCertId": CERT_CONN,
-                              "zcomponentId": str(gid), "enabled": True, "signingCertId": ROOT})
-    if c not in (200, 201):
-        print(f"  provisioningKey HTTP {c}: {json.dumps(j)[:300]}")
-        sys.exit(1)
-    print(f"  provisioningKey CREATE id={j['id']}")
-    made["privConnKeyId"] = j["id"]
 
-json.dump(made, open(os.path.join(here, "zpa-created.json"), "w"), indent=2)
-after = index("appConnectorGroup")
-print(f"connector groups after: {len(after)}")
-print("pre-existing preserved:", set(before) <= set(after))
-print(json.dumps(made, indent=2))
+if __name__ == "__main__":
+    main()
