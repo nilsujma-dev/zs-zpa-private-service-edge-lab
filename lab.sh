@@ -15,20 +15,31 @@
 # stop/start is the cheap day-to-day cycle: instances keep their identity, the
 # PSE keeps its elastic IP, and nothing has to re-enrol.
 # up/down is the full teardown. Each rebuild consumes one use of each
-# provisioning key (maxUsage 5) and leaves a stale entry in ZPA -- see
-# ./lab.sh prune-help.
+# provisioning key (v2 keys are created with maxUsage 25) and leaves a stale
+# entry in ZPA -- see ./lab.sh prune-help.
 #
 # Requires AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN in env.
 
 set -euo pipefail
 S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TF="$S/tf"
+TF="$S/terraform"
 REG="eu-central-1"
 export PATH="/opt/homebrew/bin:$PATH"
 
 need_creds() {
   : "${AWS_ACCESS_KEY_ID:?export your AWS credentials first}"
   : "${AWS_SECRET_ACCESS_KEY:?export your AWS credentials first}"
+}
+
+tf_init() {
+  # Remote state lives in S3 (see terraform/backend.tf). Same command Switchboard uses,
+  # so a laptop and the control plane share one state and one lock.
+  local acct; acct=$(aws sts get-caller-identity --query Account --output text)
+  tofu -chdir="$TF" init -input=false -reconfigure \
+    -backend-config="bucket=zs-lab-tfstate-${acct}" \
+    -backend-config="key=usecases/zpa-private-service-edge/terraform.tfstate" \
+    -backend-config="region=${REG}" \
+    -backend-config="use_lockfile=true" >/dev/null
 }
 
 ids() {
@@ -47,7 +58,7 @@ case "${1:-status}" in
       --query 'Reservations[].Instances[].[Tags[?Key==`Name`]|[0].Value,InstanceId,InstanceType,State.Name,PrivateIpAddress]' \
       --output table
     echo "=== ZPA enrolment ==="
-    python3 "$S/status.py" 2>/dev/null | sed -n '/ZPA/,$p'
+    python3 "$S/scripts/status.py" 2>/dev/null
     ;;
 
   stop)
@@ -70,6 +81,7 @@ case "${1:-status}" in
 
   up)
     need_creds
+    tf_init
     cd "$TF"
     tofu plan -out=lab.tfplan
     echo
@@ -80,6 +92,7 @@ case "${1:-status}" in
 
   down)
     need_creds
+    tf_init
     cd "$TF"
     echo "This destroys every AWS resource in the lab."
     echo "ZPA groups and provisioning keys are NOT touched -- they live outside tofu."
@@ -97,7 +110,7 @@ case "${1:-status}" in
     # Re-seed the three provisioning keys into SSM. Safe to re-run; values are
     # fetched from ZPA and written straight to SSM, never to disk.
     need_creds
-    python3 "$S/put_keys_ssm.py"
+    python3 "$S/scripts/put_keys_ssm.py"
     ;;
 
   prune-help)
@@ -105,25 +118,19 @@ case "${1:-status}" in
 ENROLMENT IS FULLY UNATTENDED. No codes, no console, no login.
 
 Each VM pulls its provisioning key from SSM Parameter Store at boot and
-self-enrols. The bootstrap mirrors Zscaler's own user_data_rhel9.sh
-provisioning_key branch -- three details matter and are easy to get wrong:
+self-enrols. The bootstrap mirrors Zscaler's own user_data_zscaler.sh (the
+Marketplace-AMI variant). The details that matter -- and the one that costs the
+most time, the Service Edge reading its key from a DIFFERENT path than the App
+Connector -- are in docs/runbook.md, "five silent failure modes".
 
-  * /opt/zscaler/var/provision_key must be mode 644, not 600. The service
-    does not run as root and cannot read a 600 file.
-  * The key is written with 'echo', so it carries a trailing newline.
-  * The service must be stopped and started a SECOND time after ~60s. The
-    image starts in OAuth mode at boot, before cloud-init runs, so a single
-    start does not switch it to key-based enrolment.
-
-If a rebuild ever falls back to printing an OAuth code on the console, one of
-those three regressed.
+If a rebuild ever falls back to printing an OAuth code on the console, start
+with failure mode 0 in the runbook (the key path).
 
 AFTER A 'down', TWO THINGS TO KNOW:
 
-  1. Each provisioning key has maxUsage 5. Five rebuilds exhausts it and the
-     sixth silently falls back to OAuth. Raise the limit in the ZPA console
-     (Infrastructure > Provisioning Keys) before running long automation.
-     Check current usage with:  ./lab.sh status
+  1. scripts/zpa_create.py creates v2 provisioning keys with maxUsage 25. If
+     you are still on the original v1 keys (maxUsage 5), the sixth rebuild
+     silently falls back to OAuth -- re-run zpa_create.py and keys to move.
 
   2. ZPA keeps the old enrolled entries; they show as disconnected and pile up
      one per rebuild. Removing them is a DELETE against ZPA, and the credential
