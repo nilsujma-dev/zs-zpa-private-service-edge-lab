@@ -262,9 +262,12 @@ def vm_instance_id(vm, group):
 
 
 def classify_cc_vm(vm, group, group_class, template_name, template_id, now, instance_lookup,
-                   min_age_min=DEFAULT_MIN_AGE_MIN, aws_checked=True):
+                   min_age_min=DEFAULT_MIN_AGE_MIN, aws_checked=True, loc_rule_refs=None):
     """instance_lookup(instance_id) -> None (NotFound) | {'state': ...}. Returns
-    (verdict, reason, facts)."""
+    (verdict, reason, facts). `loc_rule_refs` is {location_id: [rule refs]} from the ZIA/ZTW
+    rule collections only: ZTW refuses to delete the last VM of a group whose location is still
+    referenced by a rule (verified at the first prune: INVALID_OPERATION "LOCATION IS ASSOCIATED
+    WITH CONNECTOR RULE(S)"), so such a VM is KEPT until the rules move on at the next ON."""
     t = vm.get("provTemplate") or {}
     facts = {"id": sid(vm.get("id")), "group_id": sid(group.get("id")), "group": group.get("name"), "name": vm.get("name"),
              "status": ",".join(vm.get("status") or []) + (f"/{vm.get('operationalStatus')}" if vm.get("operationalStatus") else ""),
@@ -273,6 +276,10 @@ def classify_cc_vm(vm, group, group_class, template_name, template_id, now, inst
         return "SKIP", f"group-{group_class}", facts
     if str(t.get("name")) != template_name or (template_id is not None and sid(t.get("id")) != sid(template_id)):
         return "KEEP", f"template {t.get('name')!r} is not the lab template", facts
+    loc_id = sid((group.get("location") or {}).get("id"))
+    if loc_rule_refs and loc_id in loc_rule_refs and len(group.get("ecVMs") or []) <= 1:
+        facts["location"] = loc_id
+        return "KEEP", "last VM of a group whose location is referenced by " + ",".join(loc_rule_refs[loc_id]), facts
     reg = max([epoch(i.get("registerTime")) for i in vm.get("ecInstances") or [] if epoch(i.get("registerTime"))] or [0])
     facts["registered"] = fmt_age(now - reg) if reg else "?"
     if not reg:
