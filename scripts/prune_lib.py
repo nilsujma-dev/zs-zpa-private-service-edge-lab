@@ -351,7 +351,9 @@ def classify_location(loc, lab_group_loc_ids, refs, loc_prefix="AWS-Lab-ZCC-"):
     name = str(loc.get("name") or "")
     if not name.startswith(loc_prefix):
         return "SKIP", "not-lab-owned", facts
-    if loc.get("ccLocation") is not True or loc.get("ecLocation") is not True or int(loc.get("parentId") or 0) != 0:
+    # ccLocation flips to False once the group's last VM is deleted (seen at the first prune);
+    # ecLocation stays True for the auto-created root location, so either flag qualifies.
+    if not (loc.get("ccLocation") is True or loc.get("ecLocation") is True) or int(loc.get("parentId") or 0) != 0:
         return "KEEP", "lab-prefixed but not a CC/EC root location", facts
     if facts["id"] in refs:
         return "KEEP", "referenced-by " + ",".join(refs[facts["id"]]), facts
