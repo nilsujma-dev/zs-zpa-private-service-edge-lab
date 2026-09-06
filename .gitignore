@@ -26,6 +26,7 @@ secrets/
 # groups. It must never be published.
 zpa-snapshot/
 zpa-created.json
+prune-last.json
 
 # --- Python ------------------------------------------------------------------
 __pycache__/

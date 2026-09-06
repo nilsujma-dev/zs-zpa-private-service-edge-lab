@@ -18,9 +18,11 @@ Three API behaviours this script exists to get right (each cost a rebuild to fin
    after creation because the API does not error on the override.
 
 The Service Edge key uses the Service Edge cert; the connector key uses Root, which
-is the proven-working pairing in this tenant. maxUsage is 25 so repeated on/off
-cycles do not exhaust a key (at the default of 5 the sixth rebuild silently falls
-back to OAuth).
+is the proven-working pairing in this tenant. Keys are resolved by FAMILY: the highest
+`<family> v<N>` bound to the lab group is the current one (prune.py mints v<N+1> when
+fewer than 5 uses remain and reseeds SSM); the v2 name below is only minted when no
+member of the family exists. maxUsage is 200 (at the default of 5 the sixth rebuild
+silently falls back to OAuth; prune.py raises older keys to 200 as well).
 """
 import json
 import os
@@ -28,7 +30,8 @@ import sys
 
 here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, here)
-from zpa_api import get, req  # noqa: E402
+import prune_lib  # noqa: E402
+from zpa_api import get, one, req, zpa_list  # noqa: E402
 
 PREFIX = "AWS-Lab"
 LAT, LON, LOC = "50.1109221", "8.6821267", "Frankfurt am Main, Germany"
@@ -36,7 +39,7 @@ SE_NAME = f"{PREFIX} PSE Group"
 CG_NAME = f"{PREFIX} App Connector Group"
 SE_KEY = f"{PREFIX} SERVICE_EDGE_GRP key v2"
 CG_KEY = f"{PREFIX} CONNECTOR_GRP key v2"
-MAX_USAGE = "25"
+MAX_USAGE = prune_lib.KEY_MAX_USAGE   # "200"
 OUT = os.path.join(here, "zpa-created.json")
 
 
@@ -95,10 +98,12 @@ def align_service_edge_group(gid, want_cert):
 
 def ensure_key(assoc, name, cert, zcomponent_id):
     path = f"associationType/{assoc}/provisioningKey"
-    pool = index(path)
-    if name in pool:
-        rec = pool[name]
-        print(f"  provisioningKey {assoc:17} REUSE  id={rec['id']} "
+    keys = zpa_list(path)
+    family, _ = prune_lib.key_family(name)
+    rec = prune_lib.current_key(keys, family, zcomponent_id)
+    if rec:
+        one(keys, rec["name"], "provisioning keys")     # two of one name = stop
+        print(f"  provisioningKey {assoc:17} REUSE  id={rec['id']} {rec.get('name')!r} "
               f"cert={rec.get('enrollmentCertId')} usage={rec.get('usageCount')}/{rec.get('maxUsage')}")
     else:
         code, rec = req("POST", path, {

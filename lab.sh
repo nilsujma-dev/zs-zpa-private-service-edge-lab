@@ -7,6 +7,7 @@
 #   ./lab.sh up       build from nothing (plan, show, then apply)
 #   ./lab.sh down     destroy all AWS resources (ZPA objects survive)
 #   ./lab.sh keys     re-seed the provisioning keys into SSM (safe to re-run)
+#   ./lab.sh prune    list the stale lab-owned ZPA entries (dry-run); --apply deletes them
 #
 # Enrolment is unattended: each VM pulls its provisioning key from SSM at boot.
 # No OAuth code, no console login. See './lab.sh prune-help' for the details that
@@ -15,8 +16,9 @@
 # stop/start is the cheap day-to-day cycle: instances keep their identity, the
 # PSE keeps its elastic IP, and nothing has to re-enrol.
 # up/down is the full teardown. Each rebuild consumes one use of each
-# provisioning key (v2 keys are created with maxUsage 25) and leaves a stale
-# entry in ZPA -- see ./lab.sh prune-help.
+# provisioning key (maxUsage 200, rotated automatically) and leaves a stale
+# entry in ZPA, which './lab.sh prune --apply' removes (Switchboard runs it at
+# OFF and before ON) -- only inside the AWS-Lab groups. See ./lab.sh prune-help.
 #
 # Requires AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN in env.
 
@@ -103,7 +105,17 @@ case "${1:-status}" in
     tofu apply destroy.tfplan
     echo
     echo "Done. The enrolled Service Edge and App Connectors will now show as"
-    echo "disconnected in ZPA. See './lab.sh prune-help' before rebuilding."
+    echo "disconnected in ZPA. './lab.sh prune' lists them, './lab.sh prune --apply'"
+    echo "removes them (docs/runbook.md, Pruning stale entries)."
+    ;;
+
+  prune)
+    # Stale lab-owned ZPA entries: dry-run by default, --apply to delete. Only entries
+    # inside the three AWS-Lab groups are ever candidates (scripts/prune_lib.py); the
+    # script refuses without AWS credentials unless --no-aws-check is given, because a
+    # stopped instance keeps its entry. Exit 7/8/9 = safety stop, see docs/runbook.md.
+    shift
+    python3 "$S/scripts/prune.py" "$@"
     ;;
 
   keys)
@@ -128,17 +140,19 @@ with failure mode 0 in the runbook (the key path).
 
 AFTER A 'down', TWO THINGS TO KNOW:
 
-  1. scripts/zpa_create.py creates v2 provisioning keys with maxUsage 25. If
-     you are still on the original v1 keys (maxUsage 5), the sixth rebuild
-     silently falls back to OAuth -- re-run zpa_create.py and keys to move.
+  1. The provisioning keys run with maxUsage 200; scripts/prune.py mints the next
+     version of a key when fewer than 5 uses remain and reseeds SSM. At the
+     default of 5 the sixth rebuild would silently fall back to OAuth.
 
-  2. ZPA keeps the old enrolled entries; they show as disconnected and pile up
-     one per rebuild. Removing them is a DELETE against ZPA, and the credential
-     in use may be broadly scoped, so that is deliberately NOT scripted.
-     Do it in the console, where the blast radius is visible. Delete only under:
-       AWS-Lab PSE Group / AWS-Lab App Connector Group / AWS-Lab PRIV Connector Group
+  2. ZPA keeps the old enrolled entries; they show as disconnected. './lab.sh
+     prune' lists them, './lab.sh prune --apply' deletes them -- only entries
+     whose GROUP is one of AWS-Lab PSE Group / AWS-Lab App Connector Group /
+     AWS-Lab PRIV Connector Group, never by name or status, never while an EC2
+     instance still holds the entry's private ip (scripts/prune_lib.py;
+     docs/runbook.md "Pruning stale entries"). Switchboard runs the same
+     script at OFF and before ON.
 TXT
     ;;
 
-  *) echo "usage: $0 {status|stop|start|up|down|keys|prune-help}"; exit 1 ;;
+  *) echo "usage: $0 {status|stop|start|up|down|keys|prune [--apply]|prune-help}"; exit 1 ;;
 esac
