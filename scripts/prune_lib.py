@@ -276,6 +276,10 @@ def classify_cc_vm(vm, group, group_class, template_name, template_id, now, inst
         return "SKIP", f"group-{group_class}", facts
     if str(t.get("name")) != template_name or (template_id is not None and sid(t.get("id")) != sid(template_id)):
         return "KEEP", f"template {t.get('name')!r} is not the lab template", facts
+    if any("DELETING" in str(s) for s in vm.get("status") or []):
+        # ZTW deletes appliances asynchronously (DELETING / DELETING_LAST after the activated
+        # delete) and removes the emptied group and its location itself afterwards.
+        return "KEEP", "deletion in progress (ZTW cascades the group and location)", facts
     loc_id = sid((group.get("location") or {}).get("id"))
     if loc_rule_refs and loc_id in loc_rule_refs and len(group.get("ecVMs") or []) <= 1:
         facts["location"] = loc_id
